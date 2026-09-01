@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Traceur VTT</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fjalla+One&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --forest:#7FD68A;
+    --forest-deep:#3E7A46;
+    --clay:#FF9142;
+    --clay-deep:#C9691F;
+    --glass:rgba(15,17,14,0.82);
+    --glass-strong:rgba(10,12,9,0.94);
+    --ink:#F2F0EA;
+    --moss:#B8BFAE;
+    --line:rgba(255,255,255,0.14);
+    --line-strong:rgba(255,255,255,0.24);
+    --danger:#FF6B5E;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;font-family:'Work Sans',sans-serif;color:var(--ink);background:#0B0D0A;}
+  #app{position:relative;height:100dvh;width:100%;}
+
+  #map{position:absolute;inset:0;background:#1a1c16;}
+  .leaflet-container{font-family:'Work Sans',sans-serif;background:#1a1c16;}
+  .leaflet-control-zoom a{background:var(--glass) !important;color:var(--ink) !important;border-color:var(--line) !important;backdrop-filter:blur(6px);}
+
+  #topbar{position:absolute;top:0;left:0;right:0;z-index:500;display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 16px 14px;pointer-events:none;background:linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);}
+  #brand{font-family:'Fjalla One',sans-serif;font-size:19px;letter-spacing:0.02em;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.6);pointer-events:none;}
+  #recBadge{display:none;align-items:center;gap:6px;background:var(--clay);color:#221000;font-size:13px;font-weight:700;padding:6px 12px;border-radius:20px;pointer-events:auto;box-shadow:0 2px 10px rgba(0,0,0,0.4);}
+  #recBadge.live{display:flex;}
+  #recDot{width:8px;height:8px;border-radius:50%;background:#221000;animation:pulse 1.2s infinite ease-in-out;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.25;}}
+
+  #sheet{position:absolute;left:0;right:0;bottom:0;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line);border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.4);z-index:600;display:flex;flex-direction:column;max-height:14px;overflow:hidden;transition:max-height 0.32s cubic-bezier(.32,.72,0,1);padding-bottom:env(safe-area-inset-bottom);}
+  #sheet.expanded{max-height:66dvh;overflow:visible;}
+  #handle{width:36px;height:4px;background:var(--line-strong);border-radius:2px;margin:10px auto 4px;flex-shrink:0;cursor:pointer;}
+  #handleRow{flex-shrink:0;cursor:pointer;padding-bottom:2px;}
+  #tabs{display:flex;padding:4px 16px 0;gap:4px;border-bottom:1px solid var(--line);flex-shrink:0;}
+  .tab{flex:1;text-align:center;padding:10px 8px;font-size:14px;font-weight:600;color:var(--moss);border:none;background:none;border-bottom:2px solid transparent;cursor:pointer;font-family:'Work Sans',sans-serif;}
+  .tab.active{color:#fff;border-bottom-color:var(--clay);}
+  #sheetBody{padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));overflow-y:auto;flex:1;}
+
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .modeRow{display:flex;gap:8px;margin-bottom:14px;}
+  .modeBtn{flex:1;padding:10px 6px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.04);font-size:13px;font-weight:600;color:var(--moss);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;font-family:'Work Sans',sans-serif;}
+  .modeBtn.selected{background:var(--forest-deep);border-color:var(--forest);color:#fff;}
+  .modeBtn svg{width:18px;height:18px;}
+
+  .statRow{display:flex;gap:10px;margin-bottom:14px;}
+  .statCard{flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
+  .statLabel{font-size:11px;color:var(--moss);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;}
+  .statVal{font-family:'Fjalla One',sans-serif;font-size:20px;color:var(--forest);}
+
+  .actionRow{display:flex;gap:8px;}
+  button.primaryAction{flex:1;padding:13px 10px;border-radius:10px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:'Work Sans',sans-serif;}
+  .btn-forest{background:var(--forest-deep);color:#fff;}
+  .btn-clay{background:var(--clay);color:#221000;}
+  .btn-outline{background:rgba(255,255,255,0.06);border:1px solid var(--line-strong) !important;color:var(--ink);}
+  .btn-danger{background:var(--danger);color:#2A0704;}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+
+  .hint{font-size:12.5px;color:var(--moss);line-height:1.5;margin:0 0 14px;}
+
+  #saveBox{display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);}
+  #saveBox.show{display:block;}
+  #routeName{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line-strong);font-size:14px;font-family:'Work Sans',sans-serif;margin-bottom:10px;background:rgba(255,255,255,0.06);color:var(--ink);}
+  #routeName::placeholder{color:var(--moss);}
+  #routeName:focus{outline:2px solid var(--forest);outline-offset:1px;}
+  .errText{color:var(--danger);font-size:12px;margin:-6px 0 10px;display:none;}
+
+  .routeCard{background:rgba(255,255,255,0.05);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;display:flex;align-items:center;gap:10px;cursor:pointer;}
+  .routeCard:active{background:rgba(255,255,255,0.1);}
+  .routeIcon{width:34px;height:34px;border-radius:50%;background:var(--forest-deep);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .routeIcon.gps{background:var(--clay-deep);}
+  .routeInfo{flex:1;min-width:0;}
+  .routeName{font-weight:600;font-size:14.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .routeMeta{font-size:12px;color:var(--moss);margin-top:2px;}
+  .routeDel{width:32px;height:32px;border-radius:8px;border:none;background:none;color:var(--moss);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+  .routeDel:active{background:rgba(255,255,255,0.1);}
+  #emptyList{text-align:center;padding:30px 10px;color:var(--moss);font-size:13.5px;}
+
+  #viewBar{display:none;position:absolute;left:0;right:0;bottom:0;z-index:600;background:var(--glass-strong);backdrop-filter:blur(16px);border-top:1px solid var(--line);border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.4);padding:14px 16px calc(14px + env(safe-area-inset-bottom));}
+  #viewBar.show{display:block;}
+  #viewTitle{font-family:'Fjalla One',sans-serif;font-size:17px;color:#fff;margin-bottom:8px;}
+  #viewMeta{font-size:13px;color:var(--moss);margin-bottom:12px;}
+
+  .locBtn{position:absolute;z-index:500;width:42px;height:42px;border-radius:50%;background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink);}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+
+  <div id="topbar">
+    <div id="brand">Traceur VTT</div>
+    <div id="recBadge"><div id="recDot"></div><span id="recTime">00:00</span></div>
+  </div>
+
+  <button class="locBtn" id="locBtn" style="right:14px;bottom:100px;" aria-label="Me localiser">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2"/></svg>
+  </button>
+
+  <div id="viewBar">
+    <div id="viewTitle"></div>
+    <div id="viewMeta"></div>
+    <div class="actionRow">
+      <button class="primaryAction btn-outline" id="viewCloseBtn">Fermer</button>
+      <button class="primaryAction btn-danger" id="viewDeleteBtn">Supprimer</button>
+    </div>
+  </div>
+
+  <div id="sheet">
+    <div id="handleRow"><div id="handle"></div></div>
+    <div id="tabs">
+      <button class="tab active" data-tab="new">Nouveau parcours</button>
+      <button class="tab" data-tab="list">Mes parcours</button>
+    </div>
+    <div id="sheetBody">
+
+      <div class="panel active" id="panel-new">
+        <div class="modeRow">
+          <button class="modeBtn selected" id="modeTraceBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18l6-10 4 6 6-10"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.5" fill="currentColor" stroke="none"/></svg>
+            Tracer sur la carte
+          </button>
+          <button class="modeBtn" id="modeGpsBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 00-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 00-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Enregistrer en GPS
+          </button>
+        </div>
+
+        <p class="hint" id="modeHint">Touchez la carte pour poser des points. Le tracé se dessine au fur et à mesure.</p>
+
+        <div class="statRow">
+          <div class="statCard">
+            <div class="statLabel">Distance</div>
+            <div class="statVal" id="statDist">0,0 km</div>
+          </div>
+          <div class="statCard">
+            <div class="statLabel" id="statLabel2">Points</div>
+            <div class="statVal" id="statVal2">0</div>
+          </div>
+        </div>
+
+        <div class="actionRow" id="traceActions">
+          <button class="primaryAction btn-outline" id="undoBtn" disabled>Annuler le dernier point</button>
+          <button class="primaryAction btn-outline" id="clearBtn" disabled>Effacer</button>
+        </div>
+        <div class="actionRow" id="gpsActions" style="display:none;">
+          <button class="primaryAction btn-clay" id="startGpsBtn">Démarrer l'enregistrement</button>
+        </div>
+
+        <div id="saveBox">
+          <div class="errText" id="nameErr">Donnez un nom au parcours.</div>
+          <input type="text" id="routeName" placeholder="Nom du parcours, ex. Boucle des vignes" maxlength="60">
+          <div class="actionRow">
+            <button class="primaryAction btn-outline" id="discardBtn">Ne pas enregistrer</button>
+            <button class="primaryAction btn-forest" id="saveBtn">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-list">
+        <div id="routeList"></div>
+        <div id="emptyList" style="display:none;">Aucun parcours enregistré pour le moment. Créez-en un depuis l'onglet « Nouveau parcours ».</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(function(){
+  var map = L.map('map', {zoomControl:false}).setView([49.2583, 4.0317], 12);
+  var sat = L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg', {
+    maxZoom: 19,
+    minZoom: 5,
+    attribution: '&copy; IGN-F/Géoportail'
+  }).addTo(map);
+  sat.on('tileerror', function(e){
+    console.warn('Tuile satellite en échec', e);
+  });
+  L.control.zoom({position:'topright'}).addTo(map);
+
+  var FOREST = '#7FD68A', CLAY = '#FF9142';
+
+  var mode = 'trace';
+  var tracePoints = [];
+  var traceLine = null;
+  var traceMarkers = [];
+
+  var gpsRecording = false;
+  var gpsPoints = [];
+  var gpsLine = null;
+  var gpsWatchId = null;
+  var gpsStartTime = null;
+  var gpsTimerInt = null;
+  var gpsMarker = null;
+
+  var viewLine = null;
+  var currentViewId = null;
+
+  var sheetEl = document.getElementById('sheet');
+  function expandSheet(){ sheetEl.classList.add('expanded'); }
+  function collapseSheet(){ sheetEl.classList.remove('expanded'); }
+  function toggleSheet(){ sheetEl.classList.toggle('expanded'); }
+  document.getElementById('handleRow').addEventListener('click', toggleSheet);
+
+  function haversine(a, b){
+    var R = 6371000;
+    var toRad = function(d){ return d * Math.PI/180; };
+    var dLat = toRad(b[0]-a[0]);
+    var dLon = toRad(b[1]-a[1]);
+    var lat1 = toRad(a[0]);
+    var lat2 = toRad(b[0]);
+    var h = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+  }
+  function totalDist(pts){
+    var d = 0;
+    for(var i=1;i<pts.length;i++){ d += haversine(pts[i-1], pts[i]); }
+    return d;
+  }
+  function fmtDist(m){
+    return (m/1000).toLocaleString('fr-FR', {minimumFractionDigits:1, maximumFractionDigits:1}) + ' km';
+  }
+  function fmtTime(sec){
+    var m = Math.floor(sec/60), s = Math.floor(sec%60);
+    return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+  }
+
+  function updateTraceUI(){
+    document.getElementById('statDist').textContent = fmtDist(totalDist(tracePoints));
+    document.getElementById('statVal2').textContent = tracePoints.length;
+    document.getElementById('undoBtn').disabled = tracePoints.length === 0;
+    document.getElementById('clearBtn').disabled = tracePoints.length === 0;
+  }
+
+  function redrawTrace(){
+    if(traceLine){ map.removeLayer(traceLine); traceLine = null; }
+    traceMarkers.forEach(function(m){ map.removeLayer(m); });
+    traceMarkers = [];
+    if(tracePoints.length > 0){
+      traceLine = L.polyline(tracePoints, {color: FOREST, weight:4, opacity:0.9}).addTo(map);
+      tracePoints.forEach(function(p, i){
+        var isEnd = (i===0 || i===tracePoints.length-1);
+        var m = L.circleMarker(p, {
+          radius: isEnd ? 6 : 4,
+          color:'#fff', weight:2, fillColor: FOREST, fillOpacity:1
+        }).addTo(map);
+        traceMarkers.push(m);
+      });
+    }
+    updateTraceUI();
+  }
+
+  map.on('click', function(e){
+    if(mode !== 'trace') return;
+    tracePoints.push([e.latlng.lat, e.latlng.lng]);
+    redrawTrace();
+    hideSaveBox();
+    collapseSheet();
+  });
+
+  document.getElementById('undoBtn').addEventListener('click', function(){
+    tracePoints.pop();
+    redrawTrace();
+    hideSaveBox();
+  });
+  document.getElementById('clearBtn').addEventListener('click', function(){
+    tracePoints = [];
+    redrawTrace();
+    hideSaveBox();
+  });
+
+  function setMode(m){
+    mode = m;
+    document.getElementById('modeTraceBtn').classList.toggle('selected', m==='trace');
+    document.getElementById('modeGpsBtn').classList.toggle('selected', m==='gps');
+    document.getElementById('traceActions').style.display = m==='trace' ? 'flex' : 'none';
+    document.getElementById('gpsActions').style.display = m==='gps' ? 'flex' : 'none';
+    document.getElementById('statLabel2').textContent = m==='trace' ? 'Points' : 'Durée';
+    document.getElementById('modeHint').textContent = m==='trace'
+      ? "Touchez la carte pour poser des points. Le tracé se dessine au fur et à mesure."
+      : "Partez rouler avec le téléphone : la position est enregistrée en continu pendant la sortie.";
+    hideSaveBox();
+    if(m==='trace'){
+      document.getElementById('statDist').textContent = fmtDist(totalDist(tracePoints));
+      document.getElementById('statVal2').textContent = tracePoints.length;
+    } else if(!gpsRecording) {
+      document.getElementById('statDist').textContent = fmtDist(totalDist(gpsPoints));
+      document.getElementById('statVal2').textContent = '00:00';
+    }
+  }
+  document.getElementById('modeTraceBtn').addEventListener('click', function(){ setMode('trace'); expandSheet(); });
+  document.getElementById('modeGpsBtn').addEventListener('click', function(){ setMode('gps'); expandSheet(); });
+
+  function startGps(){
+    if(!navigator.geolocation){
+      alert("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    gpsPoints = [];
+    gpsRecording = true;
+    gpsStartTime = Date.now();
+    document.getElementById('recBadge').classList.add('live');
+    document.getElementById('startGpsBtn').textContent = "Arrêter l'enregistrement";
+    document.getElementById('startGpsBtn').classList.remove('btn-clay');
+    document.getElementById('startGpsBtn').classList.add('btn-danger');
+    hideSaveBox();
+
+    gpsTimerInt = setInterval(function(){
+      var sec = (Date.now()-gpsStartTime)/1000;
+      document.getElementById('recTime').textContent = fmtTime(sec);
+      document.getElementById('statVal2').textContent = fmtTime(sec);
+    }, 1000);
+
+    gpsWatchId = navigator.geolocation.watchPosition(function(pos){
+      var p = [pos.coords.latitude, pos.coords.longitude];
+      gpsPoints.push(p);
+      if(gpsLine){ map.removeLayer(gpsLine); }
+      gpsLine = L.polyline(gpsPoints, {color: CLAY, weight:5, opacity:0.9}).addTo(map);
+      if(gpsMarker){ map.removeLayer(gpsMarker); }
+      gpsMarker = L.circleMarker(p, {radius:7, color:'#fff', weight:2, fillColor: CLAY, fillOpacity:1}).addTo(map);
+      map.panTo(p);
+      document.getElementById('statDist').textContent = fmtDist(totalDist(gpsPoints));
+    }, function(err){
+      alert("Position indisponible : " + err.message + ". Vérifiez l'autorisation de localisation.");
+    }, {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+  }
+
+  function stopGps(){
+    gpsRecording = false;
+    if(gpsWatchId !== null){ navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+    if(gpsTimerInt){ clearInterval(gpsTimerInt); gpsTimerInt = null; }
+    document.getElementById('recBadge').classList.remove('live');
+    document.getElementById('startGpsBtn').textContent = "Démarrer l'enregistrement";
+    document.getElementById('startGpsBtn').classList.remove('btn-danger');
+    document.getElementById('startGpsBtn').classList.add('btn-clay');
+    if(gpsPoints.length > 1){
+      showSaveBox();
+    }
+  }
+
+  document.getElementById('startGpsBtn').addEventListener('click', function(){
+    if(!gpsRecording){ startGps(); } else { stopGps(); }
+  });
+
+  function showSaveBox(){
+    document.getElementById('saveBox').classList.add('show');
+    document.getElementById('nameErr').style.display = 'none';
+  }
+  function hideSaveBox(){
+    document.getElementById('saveBox').classList.remove('show');
+    document.getElementById('routeName').value = '';
+    document.getElementById('nameErr').style.display = 'none';
+  }
+
+  var pendingFinishForSave = false;
+  document.getElementById('traceActions').insertAdjacentHTML('afterend',
+    '<div class="actionRow" style="margin-top:8px;"><button class="primaryAction btn-forest" id="finishTraceBtn" style="width:100%;">Terminer le tracé</button></div>');
+  document.getElementById('finishTraceBtn').addEventListener('click', function(){
+    if(mode !== 'trace') return;
+    if(tracePoints.length < 2){
+      alert('Posez au moins deux points pour former un tracé.');
+      return;
+    }
+    showSaveBox();
+  });
+
+  document.getElementById('discardBtn').addEventListener('click', function(){
+    hideSaveBox();
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', function(){
+    var name = document.getElementById('routeName').value.trim();
+    if(!name){
+      document.getElementById('nameErr').style.display = 'block';
+      return;
+    }
+    var pts = mode === 'trace' ? tracePoints.slice() : gpsPoints.slice();
+    var type = mode === 'trace' ? 'trace' : 'gps';
+    var dist = totalDist(pts);
+    var route = {
+      id: 'r' + Date.now(),
+      name: name,
+      type: type,
+      points: pts,
+      distance: Math.round(dist),
+      date: new Date().toISOString()
+    };
+    saveRoute(route);
+  });
+
+  function saveRoute(route){
+    window.storage.set('parcours:' + route.id, JSON.stringify(route), false).then(function(res){
+      if(!res){ alert("Impossible d'enregistrer le parcours, réessayez."); return; }
+      hideSaveBox();
+      if(route.type === 'trace'){
+        tracePoints = []; redrawTrace();
+      } else {
+        gpsPoints = [];
+        if(gpsLine){ map.removeLayer(gpsLine); gpsLine=null; }
+        if(gpsMarker){ map.removeLayer(gpsMarker); gpsMarker=null; }
+        document.getElementById('recTime').textContent = '00:00';
+        document.getElementById('statVal2').textContent = '00:00';
+        document.getElementById('statDist').textContent = '0,0 km';
+      }
+      switchTab('list');
+      loadRouteList();
+    }).catch(function(){
+      alert("Erreur d'enregistrement, réessayez.");
+    });
+  }
+
+  function switchTab(name){
+    document.querySelectorAll('.tab').forEach(function(t){
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    document.getElementById('panel-new').classList.toggle('active', name==='new');
+    document.getElementById('panel-list').classList.toggle('active', name==='list');
+    if(name==='list'){ loadRouteList(); }
+  }
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click', function(){ switchTab(t.dataset.tab); expandSheet(); });
+  });
+
+  function loadRouteList(){
+    window.storage.list('parcours:', false).then(function(res){
+      var listEl = document.getElementById('routeList');
+      var emptyEl = document.getElementById('emptyList');
+      listEl.innerHTML = '';
+      var keys = (res && res.keys) ? res.keys : [];
+      if(keys.length === 0){
+        emptyEl.style.display = 'block';
+        return;
+      }
+      emptyEl.style.display = 'none';
+      var fetches = keys.map(function(k){
+        return window.storage.get(k, false).catch(function(){ return null; });
+      });
+      Promise.all(fetches).then(function(results){
+        var routes = results.filter(Boolean).map(function(r){
+          try { return JSON.parse(r.value); } catch(e){ return null; }
+        }).filter(Boolean);
+        routes.sort(function(a,b){ return new Date(b.date) - new Date(a.date); });
+        routes.forEach(function(route){ listEl.appendChild(routeCard(route)); });
+      });
+    }).catch(function(){
+      document.getElementById('emptyList').style.display = 'block';
+    });
+  }
+
+  function routeCard(route){
+    var div = document.createElement('div');
+    div.className = 'routeCard';
+    var d = new Date(route.date);
+    var dateStr = d.toLocaleDateString('fr-FR', {day:'numeric', month:'short'});
+    var icon = route.type === 'gps'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 2a7 7 0 00-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 00-7-7z"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 18l6-10 4 6 6-10"/></svg>';
+    div.innerHTML =
+      '<div class="routeIcon' + (route.type==='gps' ? ' gps' : '') + '">' + icon + '</div>' +
+      '<div class="routeInfo">' +
+        '<div class="routeName"></div>' +
+        '<div class="routeMeta"></div>' +
+      '</div>' +
+      '<button class="routeDel" aria-label="Supprimer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg></button>';
+    div.querySelector('.routeName').textContent = route.name;
+    div.querySelector('.routeMeta').textContent = (route.type==='gps' ? 'Enregistré' : 'Tracé') + ' · ' + fmtDist(route.distance) + ' · ' + dateStr;
+    div.addEventListener('click', function(e){
+      if(e.target.closest('.routeDel')) return;
+      viewRoute(route);
+    });
+    div.querySelector('.routeDel').addEventListener('click', function(){
+      if(confirm('Supprimer « ' + route.name + ' » ?')){
+        window.storage.delete('parcours:' + route.id, false).then(function(){
+          loadRouteList();
+        }).catch(function(){ alert('Suppression impossible, réessayez.'); });
+      }
+    });
+    return div;
+  }
+
+  function viewRoute(route){
+    switchTab('new');
+    if(viewLine){ map.removeLayer(viewLine); viewLine = null; }
+    var color = route.type === 'gps' ? CLAY : FOREST;
+    viewLine = L.polyline(route.points, {color: color, weight:5, opacity:0.9}).addTo(map);
+    map.fitBounds(viewLine.getBounds(), {padding:[40,40]});
+    currentViewId = route.id;
+    document.getElementById('viewTitle').textContent = route.name;
+    var d = new Date(route.date);
+    document.getElementById('viewMeta').textContent =
+      (route.type==='gps' ? 'Enregistré en GPS' : 'Tracé manuel') + ' · ' + fmtDist(route.distance) + ' · ' + d.toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'});
+    document.getElementById('viewBar').classList.add('show');
+    sheetEl.style.display = 'none';
+  }
+  document.getElementById('viewCloseBtn').addEventListener('click', function(){
+    if(viewLine){ map.removeLayer(viewLine); viewLine = null; }
+    document.getElementById('viewBar').classList.remove('show');
+    sheetEl.style.display = 'flex';
+    switchTab('list');
+    expandSheet();
+  });
+  document.getElementById('viewDeleteBtn').addEventListener('click', function(){
+    if(!currentViewId) return;
+    if(confirm('Supprimer ce parcours ?')){
+      window.storage.delete('parcours:' + currentViewId, false).then(function(){
+        if(viewLine){ map.removeLayer(viewLine); viewLine = null; }
+        document.getElementById('viewBar').classList.remove('show');
+        sheetEl.style.display = 'flex';
+        switchTab('list');
+        expandSheet();
+      }).catch(function(){ alert('Suppression impossible, réessayez.'); });
+    }
+  });
+
+  document.getElementById('locBtn').addEventListener('click', function(){
+    if(!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(function(pos){
+      map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+    }, function(){
+      alert("Position indisponible.");
+    });
+  });
+
+  updateTraceUI();
+  expandSheet();
+})();
+</script>
+</body>
+</html>
