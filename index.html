@@ -179,15 +179,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 (function(){
+  try{
   var map = L.map('map', {zoomControl:false}).setView([49.2583, 4.0317], 12);
-  var sat = L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg', {
+  var sat = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    minZoom: 5,
-    attribution: '&copy; IGN-F/Géoportail'
+    subdomains: ['a','b','c'],
+    attribution: '&copy; OpenStreetMap'
   }).addTo(map);
-  sat.on('tileerror', function(e){
-    console.warn('Tuile satellite en échec', e);
-  });
+  } catch(err){
+    console.error('Erreur carte:', err);
+  }
   L.control.zoom({position:'topright'}).addTo(map);
 
   var FOREST = '#7FD68A', CLAY = '#FF9142';
@@ -207,6 +208,36 @@
 
   var viewLine = null;
   var currentViewId = null;
+
+  // Couche de stockage : localStorage (site en ligne) avec repli sur window.storage (aperçu Claude)
+  var hasClaudeStorage = (typeof window.storage !== 'undefined');
+  var store = {
+    set: function(key, value){
+      if(hasClaudeStorage){ return window.storage.set(key, value, false); }
+      try{ localStorage.setItem(key, value); return Promise.resolve({key:key, value:value}); }
+      catch(e){ return Promise.reject(e); }
+    },
+    get: function(key){
+      if(hasClaudeStorage){ return window.storage.get(key, false); }
+      var v = localStorage.getItem(key);
+      if(v === null){ return Promise.reject(new Error('not found')); }
+      return Promise.resolve({key:key, value:v});
+    },
+    delete: function(key){
+      if(hasClaudeStorage){ return window.storage.delete(key, false); }
+      localStorage.removeItem(key);
+      return Promise.resolve({key:key, deleted:true});
+    },
+    list: function(prefix){
+      if(hasClaudeStorage){ return window.storage.list(prefix, false); }
+      var keys = [];
+      for(var i=0;i<localStorage.length;i++){
+        var k = localStorage.key(i);
+        if(k.indexOf(prefix) === 0){ keys.push(k); }
+      }
+      return Promise.resolve({keys:keys});
+    }
+  };
 
   var sheetEl = document.getElementById('sheet');
   function expandSheet(){ sheetEl.classList.add('expanded'); }
@@ -401,7 +432,7 @@
   });
 
   function saveRoute(route){
-    window.storage.set('parcours:' + route.id, JSON.stringify(route), false).then(function(res){
+    store.set('parcours:' + route.id, JSON.stringify(route)).then(function(res){
       if(!res){ alert("Impossible d'enregistrer le parcours, réessayez."); return; }
       hideSaveBox();
       if(route.type === 'trace'){
@@ -434,7 +465,7 @@
   });
 
   function loadRouteList(){
-    window.storage.list('parcours:', false).then(function(res){
+    store.list('parcours:').then(function(res){
       var listEl = document.getElementById('routeList');
       var emptyEl = document.getElementById('emptyList');
       listEl.innerHTML = '';
@@ -445,7 +476,7 @@
       }
       emptyEl.style.display = 'none';
       var fetches = keys.map(function(k){
-        return window.storage.get(k, false).catch(function(){ return null; });
+        return store.get(k).catch(function(){ return null; });
       });
       Promise.all(fetches).then(function(results){
         var routes = results.filter(Boolean).map(function(r){
@@ -482,7 +513,7 @@
     });
     div.querySelector('.routeDel').addEventListener('click', function(){
       if(confirm('Supprimer « ' + route.name + ' » ?')){
-        window.storage.delete('parcours:' + route.id, false).then(function(){
+        store.delete('parcours:' + route.id).then(function(){
           loadRouteList();
         }).catch(function(){ alert('Suppression impossible, réessayez.'); });
       }
@@ -514,7 +545,7 @@
   document.getElementById('viewDeleteBtn').addEventListener('click', function(){
     if(!currentViewId) return;
     if(confirm('Supprimer ce parcours ?')){
-      window.storage.delete('parcours:' + currentViewId, false).then(function(){
+      store.delete('parcours:' + currentViewId).then(function(){
         if(viewLine){ map.removeLayer(viewLine); viewLine = null; }
         document.getElementById('viewBar').classList.remove('show');
         sheetEl.style.display = 'flex';
